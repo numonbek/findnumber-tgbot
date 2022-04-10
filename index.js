@@ -1,5 +1,7 @@
 const TelegramApi = require('node-telegram-bot-api');
 const { gameOptions, againOptions } = require('./options');
+const sequelize = require('./db');
+const UserModel = require('./models');
 
 const token = '5110839841:AAG0oJ0UNbzOtEZ1xkT9fmB09VoKKIn96do';
 
@@ -15,7 +17,14 @@ const startGame = async (chatId) => {
   await bot.sendMessage(chatId, `Say Number`, gameOptions);
 };
 
-const start = () => {
+const start = async () => {
+  try {
+    await sequelize.authenticate();
+    await sequelize.sync();
+  } catch {
+    console.log('Error DB');
+  }
+
   bot.setMyCommands([
     { command: '/start', description: 'Start Description' },
     { command: '/info', description: 'Get Information' },
@@ -26,39 +35,52 @@ const start = () => {
     const text = msg.text;
     const chatId = msg.chat.id;
 
-    if (text === `/start`) {
-      await bot.sendSticker(
-        chatId,
-        'https://tlgrm.ru/_/stickers/f4e/13e/f4e13ef5-78c3-327d-bacf-fbdad210806e/9.webp',
-      );
-      return bot.sendMessage(chatId, `Hello Bro ${text}`);
-    }
-    if (text === `/info`) {
-      return bot.sendMessage(chatId, `Your Name ${msg.from.first_name} ${msg.from.last_name}`);
-    }
-    console.log(msg);
+    try {
+      if (text === `/start`) {
+        await UserModel.create({ chatId });
+        await bot.sendSticker(
+          chatId,
+          'https://tlgrm.ru/_/stickers/f4e/13e/f4e13ef5-78c3-327d-bacf-fbdad210806e/9.webp',
+        );
+        return bot.sendMessage(chatId, `Hello Bro ${text}`);
+      }
+      if (text === `/info`) {
+        const user = await UserModel.findOne({ chatId });
+        return bot.sendMessage(
+          chatId,
+          `Your Name ${msg.from.first_name} ${msg.from.last_name}, Right answers: ${user.right}, wrongs: ${user.wrong}`,
+        );
+      }
+      console.log(msg);
 
-    if (text === '/game') {
-      return startGame(chatId);
-    }
+      if (text === '/game') {
+        return startGame(chatId);
+      }
 
-    return bot.sendMessage(chatId, `I don't know what do you want`);
+      return bot.sendMessage(chatId, `I don't know what do you want`);
+    } catch {
+      return bot.sendMessage(chatId, 'Error Message');
+    }
   });
-  bot.on('callback_query', (msg) => {
+  bot.on('callback_query', async (msg) => {
     const data = msg.data;
     const chatId = msg.message.chat.id;
     if (data === '/again') {
       return startGame(chatId);
     }
 
-    if (data == chats[chatId]) {
-      return bot.sendMessage(chatId, `Win You Find Number: ${chats[chatId]}`, againOptions);
-    } else {
-      return bot.sendMessage(chatId, `You Can't Find Number(, Number Is: ${data}`, againOptions);
-    }
+    const user = await UserModel.findOne({ chatId });
 
-    bot.sendMessage(chatId, `You check Number ${data}`);
-    console.log(msg);
+    if (data == chats[chatId]) {
+      user.right += 1;
+      await bot.sendMessage(chatId, `Win You Find Number: ${chats[chatId]}`, againOptions);
+    } else {
+      user.wrong += 1;
+      await bot.sendMessage(chatId, `You Can't Find Number(, Number Is: ${data}`, againOptions);
+    }
+    await user.save();
+    // bot.sendMessage(chatId, `You check Number ${data}`);
+    // console.log(msg);
   });
 };
 
